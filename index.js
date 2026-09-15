@@ -1,5 +1,5 @@
 const express = require('express');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode');
 const fs = require('fs');
@@ -13,14 +13,20 @@ let isReady = false;
 
 async function connectToWhatsApp() {
     try {
-        console.log('Initializing Baileys connection...');
+        console.log('Fetching latest WhatsApp Web version...');
+        
+        // جلب أحدث إصدار رسمي من سيرفرات الواتساب لكتف كود 405
+        const { version } = await fetchLatestBaileysVersion();
+        console.log(`Using WA Web version: ${version.join('.')}`);
+
         const { state, saveCreds } = await useMultiFileAuthState('auth_baileys_session');
         
         sock = makeWASocket({
+            version,
             auth: state,
             logger: pino({ level: 'silent' }),
             printQRInTerminal: false,
-            browser: ["Ubuntu", "Chrome", "120.0.0.0"]
+            browser: ["Ubuntu", "Chrome", "20.0.04"]
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -45,10 +51,12 @@ async function connectToWhatsApp() {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 console.log('Connection closed, status:', statusCode);
                 
-                if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                    console.log('Wiping old session...');
+                // تنظيف بيانات الجلسة القديمة تلقائياً عند حدوث 405 أو 401
+                if (statusCode === 405 || statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
+                    console.log('Cleaning invalid session files...');
                     try { fs.rmSync('auth_baileys_session', { recursive: true, force: true }); } catch (e) {}
                 }
+                
                 setTimeout(connectToWhatsApp, 3000);
             }
         });
