@@ -2,6 +2,7 @@ const express = require('express');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode');
+const fs = require('fs');
 
 const app = express();
 app.use(express.json());
@@ -12,11 +13,13 @@ let isReady = false;
 
 async function connectToWhatsApp() {
     try {
+        console.log('Initializing Baileys connection...');
         const { state, saveCreds } = await useMultiFileAuthState('auth_baileys_session');
         
         sock = makeWASocket({
             auth: state,
             logger: pino({ level: 'silent' }),
+            printQRInTerminal: false,
             browser: ["Ubuntu", "Chrome", "120.0.0.0"]
         });
 
@@ -28,27 +31,30 @@ async function connectToWhatsApp() {
             if (qr) {
                 isReady = false;
                 qrCodeData = await qrcode.toDataURL(qr);
-                console.log('New QR generated successfully!');
+                console.log('✅ New QR Generated!');
             }
 
             if (connection === 'open') {
                 isReady = true;
                 qrCodeData = '';
-                console.log('WhatsApp Ready (Baileys)!');
+                console.log('✅ WhatsApp Ready (Baileys)!');
             }
 
             if (connection === 'close') {
                 isReady = false;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                console.log('Connection closed. Reconnecting:', shouldReconnect);
-                if (shouldReconnect) {
-                    setTimeout(connectToWhatsApp, 3000);
+                console.log('Connection closed, status:', statusCode);
+                
+                if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                    console.log('Wiping old session...');
+                    try { fs.rmSync('auth_baileys_session', { recursive: true, force: true }); } catch (e) {}
                 }
+                setTimeout(connectToWhatsApp, 3000);
             }
         });
     } catch (err) {
-        console.error('Connection init error:', err);
+        console.error('❌ Connection init error:', err);
+        setTimeout(connectToWhatsApp, 5000);
     }
 }
 
