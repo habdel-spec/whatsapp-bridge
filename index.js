@@ -21,10 +21,8 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu',
-            '--single-process'
+            '--disable-gpu'
         ]
-    }
     }
 });
 
@@ -64,7 +62,7 @@ app.get('/', (req, res) => {
 
 app.post('/send', async (req, res) => {
     if (!isReady) {
-        return res.status(503).json({ status: 'error', error: 'السيرفر غير جاهز بعد، انتظر ثوانٍ' });
+        return res.status(503).json({ status: 'error', error: 'السيرفر غير جاهز بعد' });
     }
     const { phone, message } = req.body;
     try {
