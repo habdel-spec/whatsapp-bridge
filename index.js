@@ -1,5 +1,6 @@
 const express = require('express');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const pino = require('pino');
 const qrcode = require('qrcode');
 
 const app = express();
@@ -10,40 +11,45 @@ let qrCodeData = '';
 let isReady = false;
 
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_baileys_session');
-    
-    sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: false,
-        browser: ["Ubuntu", "Chrome", "120.0.0.0"]
-    });
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState('auth_baileys_session');
+        
+        sock = makeWASocket({
+            auth: state,
+            logger: pino({ level: 'silent' }),
+            browser: ["Ubuntu", "Chrome", "120.0.0.0"]
+        });
 
-    sock.ev.on('creds.update', saveCreds);
+        sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
-            isReady = false;
-            qrCodeData = await qrcode.toDataURL(qr);
-        }
-
-        if (connection === 'open') {
-            isReady = true;
-            qrCodeData = '';
-            console.log('WhatsApp Ready (Baileys)!');
-        }
-
-        if (connection === 'close') {
-            isReady = false;
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log('Connection closed. Reconnecting:', shouldReconnect);
-            if (shouldReconnect) {
-                setTimeout(connectToWhatsApp, 3000);
+            if (qr) {
+                isReady = false;
+                qrCodeData = await qrcode.toDataURL(qr);
+                console.log('New QR generated successfully!');
             }
-        }
-    });
+
+            if (connection === 'open') {
+                isReady = true;
+                qrCodeData = '';
+                console.log('WhatsApp Ready (Baileys)!');
+            }
+
+            if (connection === 'close') {
+                isReady = false;
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                console.log('Connection closed. Reconnecting:', shouldReconnect);
+                if (shouldReconnect) {
+                    setTimeout(connectToWhatsApp, 3000);
+                }
+            }
+        });
+    } catch (err) {
+        console.error('Connection init error:', err);
+    }
 }
 
 connectToWhatsApp();
@@ -82,4 +88,4 @@ app.post('/send', async (req, res) => {
     }
 });
 
-app.listen(process.env.PORT || 3000);
+app.listen(process.env.PORT || 3000, () => console.log('Server running...'));
