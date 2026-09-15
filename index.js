@@ -21,7 +21,12 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--disable-extensions',
+            '--disable-component-update',
+            '--disable-default-apps',
+            '--renderer-process-limit=1',
+            '--js-flags="--max-old-space-size=128"'
         ]
     }
 });
