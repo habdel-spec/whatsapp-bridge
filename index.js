@@ -1,61 +1,61 @@
-process.env.PUPPETEER_CACHE_DIR = '/opt/render/project/src/.cache';
-
 const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
 
 const app = express();
 app.use(express.json());
 
+let sock = null;
 let qrCodeData = '';
 let isReady = false;
 
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--disable-extensions',
-            '--disable-component-update',
-            '--disable-default-apps',
-            '--renderer-process-limit=1',
-            '--js-flags="--max-old-space-size=128"'
-        ]
-    }
-});
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_baileys_session');
+    
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        browser: ["Ubuntu", "Chrome", "120.0.0.0"]
+    });
 
-client.on('qr', (qr) => {
-    isReady = false;
-    qrcode.toDataURL(qr, (err, url) => { qrCodeData = url; });
-});
+    sock.ev.on('creds.update', saveCreds);
 
-client.on('ready', () => {
-    isReady = true;
-    qrCodeData = '';
-    console.log('WhatsApp Ready!');
-});
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-client.on('authenticated', () => console.log('Authenticated!'));
-client.on('auth_failure', () => { isReady = false; });
-client.on('disconnected', () => { isReady = false; });
+        if (qr) {
+            isReady = false;
+            qrCodeData = await qrcode.toDataURL(qr);
+        }
 
-client.initialize();
+        if (connection === 'open') {
+            isReady = true;
+            qrCodeData = '';
+            console.log('WhatsApp Ready (Baileys)!');
+        }
+
+        if (connection === 'close') {
+            isReady = false;
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed. Reconnecting:', shouldReconnect);
+            if (shouldReconnect) {
+                setTimeout(connectToWhatsApp, 3000);
+            }
+        }
+    });
+}
+
+connectToWhatsApp();
 
 app.get('/', (req, res) => {
     if (isReady) {
-        return res.send('<h2 style="color:green;text-align:center;font-family:sans-serif;margin-top:50px;">الواتساب متصل وجاهز ✅</h2>');
+        return res.send('<h2 style="color:green;text-align:center;font-family:sans-serif;margin-top:50px;">الواتساب متصل وجاهز ✅ (Baileys)</h2>');
     }
     if (qrCodeData) {
         return res.send(`
             <div style="text-align:center;font-family:sans-serif;margin-top:30px;">
-                <meta http-equiv="refresh" content="12">
+                <meta http-equiv="refresh" content="10">
                 <h2>امسح الـ QR Code الآن:</h2>
                 <img src="${qrCodeData}" style="width:250px;height:250px;"/>
                 <p style="color:gray;">الصفحة تتحدث تلقائياً للحفاظ على صلاحية الرمز...</p>
@@ -66,19 +66,15 @@ app.get('/', (req, res) => {
 });
 
 app.post('/send', async (req, res) => {
-    if (!isReady) {
+    if (!isReady || !sock) {
         return res.status(503).json({ status: 'error', error: 'السيرفر غير جاهز بعد' });
     }
     const { phone, message } = req.body;
     try {
-        const sanitizedPhone = phone.replace(/[^0-9]/g, '');
-        const numberDetails = await client.getNumberId(sanitizedPhone);
+        const cleanPhone = phone.replace(/[^0-9]/g, '');
+        const jid = `${cleanPhone}@s.whatsapp.net`;
         
-        if (!numberDetails) {
-            return res.status(400).json({ status: 'error', error: 'الرقم غير مسجل على الواتساب' });
-        }
-        
-        await client.sendMessage(numberDetails._serialized, message);
+        await sock.sendMessage(jid, { text: message });
         res.status(200).json({ status: 'success' });
     } catch (err) {
         console.error('Send error:', err);
