@@ -14,8 +14,6 @@ let isReady = false;
 async function connectToWhatsApp() {
     try {
         console.log('Fetching latest WhatsApp Web version...');
-        
-        // جلب أحدث إصدار رسمي من سيرفرات الواتساب لكتف كود 405
         const { version } = await fetchLatestBaileysVersion();
         console.log(`Using WA Web version: ${version.join('.')}`);
 
@@ -51,7 +49,6 @@ async function connectToWhatsApp() {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 console.log('Connection closed, status:', statusCode);
                 
-                // تنظيف بيانات الجلسة القديمة تلقائياً عند حدوث 405 أو 401
                 if (statusCode === 405 || statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
                     console.log('Cleaning invalid session files...');
                     try { fs.rmSync('auth_baileys_session', { recursive: true, force: true }); } catch (e) {}
@@ -82,7 +79,28 @@ app.get('/', (req, res) => {
             </div>
         `);
     }
-    res.send('<div style="text-align:center;font-family:sans-serif;margin-top:50px;"><meta http-equiv="refresh" content="5"><h2>جاري تجهيز السيرفر... انتظر ثوانٍ</h2></div>');
+    res.send(`
+        <div style="text-align:center;font-family:sans-serif;margin-top:50px;">
+            <meta http-equiv="refresh" content="5">
+            <h2>جاري تجهيز السيرفر... انتظر ثوانٍ</h2>
+            <p style="margin-top:20px;"><a href="/reset" style="color:red;text-decoration:none;font-weight:bold;">اضغط هنا لمسح الجلسة القديمة وإظهار الـ QR Code 🔄</a></p>
+        </div>
+    `);
+});
+
+app.get('/reset', (req, res) => {
+    try {
+        if (sock) {
+            try { sock.end(); } catch(e){}
+        }
+        fs.rmSync('auth_baileys_session', { recursive: true, force: true });
+        isReady = false;
+        qrCodeData = '';
+        setTimeout(connectToWhatsApp, 1000);
+        res.send('<div style="text-align:center;font-family:sans-serif;margin-top:50px;"><h2>تم تفريغ الجلسة القديمة بنجاح! جاري إظهار الـ QR جديد...</h2><script>setTimeout(() => { window.location.href = "/"; }, 3000);</script></div>');
+    } catch (err) {
+        res.send('حدث خطأ أثناء إعادة الضبط: ' + err.message);
+    }
 });
 
 app.post('/send', async (req, res) => {
